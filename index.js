@@ -1,21 +1,17 @@
 // ============================================================
-//  PURNIMA E-SPORTS — FINAL PRODUCTION BACKEND (VERCEL)
+//  PURNIMA E-SPORTS — FINAL STABLE BACKEND (QR FIXED)
 // ============================================================
 
 const cors = require("cors");
 const express = require("express");
 const admin = require("firebase-admin");
-const crypto = require("crypto");
 const axios = require("axios");
 
 const app = express();
 app.use(cors({ origin: "*" }));
-
-// Cashfree Webhook ke liye raw body zaroori hai
-app.use("/api/webhook/cashfree", express.raw({ type: "application/json" }));
 app.use(express.json());
 
-// 1. Firebase Admin Initialization (Vercel Serverless Fix)
+// 1. Firebase Admin Initialization
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -30,11 +26,10 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// 2. Cashfree Config
+// 2. Cashfree Config (Testing Mode - Sandbox)
 const CF_APP_ID = process.env.CASHFREE_APP_ID;
 const CF_SECRET = process.env.CASHFREE_SECRET_KEY;
-// नया कोड (टेस्टिंग के लिए)
-const CF_BASE_URL = "https://sandbox.cashfree.com/pg";
+const CF_URL = "https://sandbox.cashfree.com/pg"; 
 
 // --- HELPERS ---
 async function verifyToken(req, res) {
@@ -53,122 +48,31 @@ async function verifyToken(req, res) {
   }
 }
 
-function genReferralCode(uid) {
-  return (
-    uid.slice(0, 6).toUpperCase() +
-    Math.random().toString(36).slice(2, 5).toUpperCase()
-  );
-}
-
 // --- API ROUTES ---
 
-// Test Route: Check if live
 app.get("/api", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Purnima Backend Live! ✅",
-    status: "Ready for requests",
-  });
+  res.status(200).json({ success: true, message: "Backend Live! ✅" });
 });
 
-// Signup Route
-app.post("/api/auth/signup", async (req, res) => {
-  try {
-    const { uid, username, email, referralCode } = req.body;
-    if (!uid || !username || !email) {
-      return res.status(400).json({ error: "Details missing" });
-    }
-
-    const userRef = db.collection("users").doc(uid);
-    const snap = await userRef.get();
-    if (snap.exists) return res.json({ success: true, message: "User exists" });
-
-    const newUser = {
-      username: String(username).trim(),
-      email: String(email).trim(),
-      wallet: 0,
-      referralCode: genReferralCode(uid),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    await userRef.set(newUser);
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Create Order Route
-app.post("/api/wallet/createOrder", async (req, res) => {
-  const uid = await verifyToken(req, res);
-  if (!uid) return;
-
-  try {
-    const amount = parseFloat(req.body.amount);
-    if (!amount || amount < 1)
-      return res.status(400).json({ error: "Min ₹1 required" });
-
-    const orderId = `ORD_${uid.slice(0, 6)}_${Date.now()}`;
-
-    const cfRes = await axios.post(
-      `${CF_BASE_URL}/orders`,
-      {
-        order_id: orderId,
-        order_amount: amount,
-        order_currency: "INR",
-        customer_details: {
-          customer_id: uid,
-          customer_email: "user@purnima.com",
-          customer_phone: "9999999999",
-        },
-      },
-      {
-        headers: {
-          "x-client-id": CF_APP_ID,
-          "x-client-secret": CF_SECRET,
-          "x-api-version": "2023-08-01",
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    await db.collection("transactions").doc(orderId).set({
-      userId: uid,
-      amount,
-      status: "PENDING",
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    res.json({ sessionId: cfRes.data.payment_session_id, orderId });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// --- NAYA ROUTE: SEAMLESS QR CODE KE LIYE (FIXED HEADERS) ---
+// Create Order & Get QR Code (FIXED VERSION)
 app.post("/api/wallet/createQR", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
 
   try {
     const amount = parseFloat(req.body.amount);
-    if (!amount || amount < 1)
-      return res.status(400).json({ error: "Min ₹1 required" });
+    if (!amount || amount < 1) return res.status(400).json({ error: "Min ₹1 required" });
 
-    const orderId = `ORD_${uid.slice(0, 6)}_${Date.now()}`;
+    const orderId = `ORD_${uid.slice(0, 5)}_${Date.now()}`;
 
-    // 16 Minute ki Expiry (Cashfree rule fix)
-    const expiryDate = new Date();
-    expiryDate.setMinutes(expiryDate.getMinutes() + 16);
-
-    // 1. Order Create Karein
-    const orderRes = await axios.post(
-      `${CF_BASE_URL}/orders`,
+    // STEP 1: Order Create
+    const orderResponse = await axios.post(
+      `${CF_URL}/orders`,
       {
         order_id: orderId,
         order_amount: amount,
         order_currency: "INR",
-        order_expiry_time: expiryDate.toISOString(),
+        order_expiry_time: new Date(Date.now() + 20 * 60000).toISOString(),
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
@@ -184,30 +88,26 @@ app.post("/api/wallet/createQR", async (req, res) => {
       }
     );
 
-    const sessionId = orderRes.data.payment_session_id;
+    const sessionId = orderResponse.data.payment_session_id;
 
-    // 2. QR Code Image mangein (FIXED: Added Headers here too)
-    const qrRes = await axios.post(
-      `${CF_BASE_URL}/orders/pay`,
+    // STEP 2: Session Pay API (QR FIXED)
+    const qrResponse = await axios.post(
+      `${CF_URL}/orders/sessions/pay`, 
       {
         payment_session_id: sessionId,
         payment_method: {
-          upi: {
-            channel: "qrcode"
-          }
+          upi: { channel: "qrcode" }
         }
       },
       {
         headers: {
-          "x-client-id": CF_APP_ID,
-          "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
           "Content-Type": "application/json",
         },
       }
     );
 
-    // Transaction History me Pending save karein
+    // STEP 3: Firestore Transaction
     await db.collection("transactions").doc(orderId).set({
       userId: uid,
       amount,
@@ -217,27 +117,23 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     res.json({
       orderId: orderId,
-      qrData: qrRes.data.data.payload.qrcode, 
+      qrData: qrResponse.data.data.payload.qrcode,
     });
 
   } catch (e) {
-    const errorDetail = e.response && e.response.data ? JSON.stringify(e.response.data) : e.message;
-    console.error("QR Error:", errorDetail);
-    res.status(500).json({ error: errorDetail });
+    const errorMsg = e.response && e.response.data ? e.response.data : e.message;
+    res.status(500).json({ error: JSON.stringify(errorMsg) });
   }
 });
 
-// ✅ Verify Order Route (NAYA)
+// Verify Payment
 app.post("/api/wallet/verifyOrder", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
 
   try {
     const { orderId } = req.body;
-    if (!orderId)
-      return res.status(400).json({ error: "Order ID missing" });
-
-    const cfRes = await axios.get(`${CF_BASE_URL}/orders/${orderId}`, {
+    const cfRes = await axios.get(`${CF_URL}/orders/${orderId}`, {
       headers: {
         "x-client-id": CF_APP_ID,
         "x-client-secret": CF_SECRET,
@@ -246,23 +142,20 @@ app.post("/api/wallet/verifyOrder", async (req, res) => {
     });
 
     const status = cfRes.data.order_status;
-
     if (status === "PAID") {
       const txnRef = db.collection("transactions").doc(orderId);
       const txn = await txnRef.get();
       if (txn.exists && txn.data().status !== "PAID") {
         await txnRef.update({ status: "PAID" });
         await db.collection("users").doc(uid).update({
-          wallet: admin.firestore.FieldValue.increment(txn.data().amount),
+          balance: admin.firestore.FieldValue.increment(txn.data().amount),
         });
       }
     }
-
     res.json({ status });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// Export for Vercel
 module.exports = app;
