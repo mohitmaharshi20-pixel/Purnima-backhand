@@ -2,12 +2,14 @@
 //  PURNIMA E-SPORTS — FINAL PRODUCTION BACKEND (VERCEL)
 // ============================================================
 
+const cors = require("cors");
 const express = require("express");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 const axios = require("axios");
 
 const app = express();
+app.use(cors({ origin: "*" }));
 
 // Cashfree Webhook ke liye raw body zaroori hai
 app.use("/api/webhook/cashfree", express.raw({ type: "application/json" }));
