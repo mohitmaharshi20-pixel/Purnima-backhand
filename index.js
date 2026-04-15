@@ -1,5 +1,5 @@
 // ============================================================
-//  PURNIMA E-SPORTS — FULL PRODUCTION BACKEND (REPAIRED)
+//  PURNIMA E-SPORTS — FULL PRODUCTION BACKEND (FINAL FIX)
 // ============================================================
 
 const cors = require("cors");
@@ -133,13 +133,15 @@ app.post("/api/wallet/createOrder", async (req, res) => {
   }
 });
 
-// ✅ 3. FIXED CREATE QR CODE (USING SESSIONS PAY ENDPOINT)
+// ✅ 3. FIXED CREATE QR CODE (STABLE SANDBOX VERSION)
 app.post("/api/wallet/createQR", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
 
   try {
     const amount = parseFloat(req.body.amount);
+    if (!amount || amount < 1) return res.status(400).json({ error: "Min ₹1 required" });
+
     const orderId = `ORD_QR_${uid.slice(0, 5)}_${Date.now()}`;
 
     // A. Order Create
@@ -149,7 +151,7 @@ app.post("/api/wallet/createQR", async (req, res) => {
         order_id: orderId,
         order_amount: amount,
         order_currency: "INR",
-        order_expiry_time: new Date(Date.now() + 25 * 60000).toISOString(),
+        order_expiry_time: new Date(Date.now() + 40 * 60000).toISOString(), // 40 Mins for safety
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
@@ -167,18 +169,21 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     const sessionId = orderRes.data.payment_session_id;
 
-    // B. Get QR Code (FIXED: Using /sessions/pay to avoid Token error)
+    // B. Get QR Code (STABLE ENDPOINT)
     const payRes = await axios.post(
-      `${CF_BASE_URL}/orders/sessions/pay`,
+      `${CF_BASE_URL}/orders/pay`, // Back to stable endpoint
       {
         payment_session_id: sessionId,
-        payment_method: { upi: { channel: "qrcode" } }
+        payment_method: { 
+          upi: { channel: "qrcode" } 
+        }
       },
       {
         headers: {
+          "x-client-id": CF_APP_ID,
+          "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
           "Content-Type": "application/json",
-          "x-request-id": `REQ_${Date.now()}`
         },
       }
     );
@@ -198,6 +203,7 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
   } catch (e) {
     const errorData = e.response && e.response.data ? e.response.data : e.message;
+    console.error("QR Error:", JSON.stringify(errorData));
     res.status(500).json({ error: JSON.stringify(errorData) });
   }
 });
@@ -225,7 +231,6 @@ app.post("/api/wallet/verifyOrder", async (req, res) => {
       if (txn.exists && txn.data().status !== "PAID") {
         await txnRef.update({ status: "PAID" });
         
-        // Purnima App uses 'balance' field in 'users' collection
         await db.collection("users").doc(uid).update({
           balance: admin.firestore.FieldValue.increment(txn.data().amount),
           transactions: admin.firestore.FieldValue.arrayUnion({
