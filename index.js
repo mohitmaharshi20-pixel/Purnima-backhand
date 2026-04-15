@@ -1,5 +1,5 @@
 // ============================================================
-//  PURNIMA E-SPORTS — FINAL STABLE BACKEND (QR FIXED)
+//  PURNIMA E-SPORTS — QR CODE FINAL REPAIR (STABLE)
 // ============================================================
 
 const cors = require("cors");
@@ -26,10 +26,10 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// 2. Cashfree Config (Testing Mode - Sandbox)
+// 2. Cashfree Config (Sandbox Mode)
 const CF_APP_ID = process.env.CASHFREE_APP_ID;
 const CF_SECRET = process.env.CASHFREE_SECRET_KEY;
-const CF_URL = "https://sandbox.cashfree.com/pg"; 
+const CF_BASE_URL = "https://sandbox.cashfree.com/pg"; // Sandbox URL
 
 // --- HELPERS ---
 async function verifyToken(req, res) {
@@ -51,10 +51,10 @@ async function verifyToken(req, res) {
 // --- API ROUTES ---
 
 app.get("/api", (req, res) => {
-  res.status(200).json({ success: true, message: "Backend Live! ✅" });
+  res.status(200).json({ success: true, message: "Purnima Backend Live! ✅" });
 });
 
-// Create Order & Get QR Code (FIXED VERSION)
+// ✅ CREATE QR CODE ROUTE (STABLE VERSION)
 app.post("/api/wallet/createQR", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
@@ -65,14 +65,14 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     const orderId = `ORD_${uid.slice(0, 5)}_${Date.now()}`;
 
-    // STEP 1: Order Create
-    const orderResponse = await axios.post(
-      `${CF_URL}/orders`,
+    // STEP 1: Create Order
+    const orderRes = await axios.post(
+      `${CF_BASE_URL}/orders`,
       {
         order_id: orderId,
         order_amount: amount,
         order_currency: "INR",
-        order_expiry_time: new Date(Date.now() + 20 * 60000).toISOString(),
+        order_expiry_time: new Date(Date.now() + 30 * 60000).toISOString(),
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
@@ -88,11 +88,12 @@ app.post("/api/wallet/createQR", async (req, res) => {
       }
     );
 
-    const sessionId = orderResponse.data.payment_session_id;
+    const sessionId = orderRes.data.payment_session_id;
 
-    // STEP 2: Session Pay API (QR FIXED)
-    const qrResponse = await axios.post(
-      `${CF_URL}/orders/sessions/pay`, 
+    // STEP 2: Pay API (Direct Endpoint for Seamless QR)
+    // हमने URL को बदल कर '/orders/pay' किया है जो 'not valid' एरर को हटा देगा
+    const payRes = await axios.post(
+      `${CF_BASE_URL}/orders/pay`, 
       {
         payment_session_id: sessionId,
         payment_method: {
@@ -101,13 +102,15 @@ app.post("/api/wallet/createQR", async (req, res) => {
       },
       {
         headers: {
+          "x-client-id": CF_APP_ID, // यहाँ Client ID/Secret डालना जरूरी है
+          "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
           "Content-Type": "application/json",
         },
       }
     );
 
-    // STEP 3: Firestore Transaction
+    // STEP 3: Save to Database
     await db.collection("transactions").doc(orderId).set({
       userId: uid,
       amount,
@@ -117,23 +120,24 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     res.json({
       orderId: orderId,
-      qrData: qrResponse.data.data.payload.qrcode,
+      qrData: payRes.data.data.payload.qrcode, // Base64 Image
     });
 
   } catch (e) {
-    const errorMsg = e.response && e.response.data ? e.response.data : e.message;
-    res.status(500).json({ error: JSON.stringify(errorMsg) });
+    const errorData = e.response && e.response.data ? e.response.data : e.message;
+    console.error("Full Error Debug:", JSON.stringify(errorData));
+    res.status(500).json({ error: JSON.stringify(errorData) });
   }
 });
 
-// Verify Payment
+// ✅ VERIFY ORDER ROUTE
 app.post("/api/wallet/verifyOrder", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
 
   try {
     const { orderId } = req.body;
-    const cfRes = await axios.get(`${CF_URL}/orders/${orderId}`, {
+    const cfRes = await axios.get(`${CF_BASE_URL}/orders/${orderId}`, {
       headers: {
         "x-client-id": CF_APP_ID,
         "x-client-secret": CF_SECRET,
