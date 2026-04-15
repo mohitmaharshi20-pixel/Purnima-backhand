@@ -1,5 +1,5 @@
 // ============================================================
-//  PURNIMA E-SPORTS — FULL PRODUCTION BACKEND (FINAL FIX)
+//  PURNIMA E-SPORTS — FINAL STABLE BACKEND (FULLY REPAIRED)
 // ============================================================
 
 const cors = require("cors");
@@ -10,12 +10,9 @@ const axios = require("axios");
 
 const app = express();
 app.use(cors({ origin: "*" }));
-
-// Cashfree Webhook ke liye raw body zaroori hai
-app.use("/api/webhook/cashfree", express.raw({ type: "application/json" }));
 app.use(express.json());
 
-// 1. Firebase Admin Initialization (Vercel Serverless Fix)
+// 1. Firebase Admin Initialization
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -61,21 +58,16 @@ function genReferralCode(uid) {
 
 // --- API ROUTES ---
 
-// Test Route: Check if live
+// Test Route
 app.get("/api", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Purnima Backend Full Version Live! ✅",
-  });
+  res.status(200).json({ success: true, message: "Backend Full & Stable ✅" });
 });
 
-// ✅ 1. SIGNUP ROUTE (JO CHHOOT GAYA THA)
+// ✅ 1. SIGNUP & REFERRAL (जो पहले गायब लग रहा था)
 app.post("/api/auth/signup", async (req, res) => {
   try {
     const { uid, username, email } = req.body;
-    if (!uid || !username || !email) {
-      return res.status(400).json({ error: "Details missing" });
-    }
+    if (!uid || !username || !email) return res.status(400).json({ error: "Details missing" });
 
     const userRef = db.collection("users").doc(uid);
     const snap = await userRef.get();
@@ -84,7 +76,8 @@ app.post("/api/auth/signup", async (req, res) => {
     const newUser = {
       name: String(username).trim(),
       email: String(email).trim(),
-      balance: 0,
+      balance: 0, 
+      wallet: 0, // दोनों नाम रख दिए ताकि ऐप कंफ्यूज न हो
       referralCode: genReferralCode(uid),
       transactions: [],
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -97,8 +90,8 @@ app.post("/api/auth/signup", async (req, res) => {
   }
 });
 
-// ✅ 2. STANDARD CREATE ORDER (BACKUP)
-app.post("/api/wallet/createOrder", async (req, res) => {
+// ✅ 2. QR CODE GENERATION (FIXED ENDPOINT)
+app.post("/api/wallet/createQR", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
 
@@ -106,52 +99,14 @@ app.post("/api/wallet/createOrder", async (req, res) => {
     const amount = parseFloat(req.body.amount);
     const orderId = `ORD_${uid.slice(0, 5)}_${Date.now()}`;
 
-    const cfRes = await axios.post(
-      `${CF_BASE_URL}/orders`,
-      {
-        order_id: orderId,
-        order_amount: amount,
-        order_currency: "INR",
-        customer_details: {
-          customer_id: uid,
-          customer_phone: "9999999999",
-        },
-      },
-      {
-        headers: {
-          "x-client-id": CF_APP_ID,
-          "x-client-secret": CF_SECRET,
-          "x-api-version": "2023-08-01",
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    res.json({ sessionId: cfRes.data.payment_session_id, orderId });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ✅ 3. FIXED CREATE QR CODE (STABLE SANDBOX VERSION)
-app.post("/api/wallet/createQR", async (req, res) => {
-  const uid = await verifyToken(req, res);
-  if (!uid) return;
-
-  try {
-    const amount = parseFloat(req.body.amount);
-    if (!amount || amount < 1) return res.status(400).json({ error: "Min ₹1 required" });
-
-    const orderId = `ORD_QR_${uid.slice(0, 5)}_${Date.now()}`;
-
-    // A. Order Create
+    // STEP A: Create Order (यह सेशन आईडी देगा)
     const orderRes = await axios.post(
       `${CF_BASE_URL}/orders`,
       {
         order_id: orderId,
         order_amount: amount,
         order_currency: "INR",
-        order_expiry_time: new Date(Date.now() + 40 * 60000).toISOString(), // 40 Mins for safety
+        order_expiry_time: new Date(Date.now() + 30 * 60000).toISOString(),
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
@@ -169,21 +124,17 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     const sessionId = orderRes.data.payment_session_id;
 
-    // B. Get QR Code (STABLE ENDPOINT)
+    // STEP B: Get QR Code (USING REPAIRED SESSION PAY ENDPOINT)
     const payRes = await axios.post(
-      `${CF_BASE_URL}/orders/pay`, // Back to stable endpoint
+      `${CF_BASE_URL}/orders/sessions/pay`, // सैंडबॉक्स के लिए सबसे पक्का लिंक
       {
         payment_session_id: sessionId,
-        payment_method: { 
-          upi: { channel: "qrcode" } 
-        }
+        payment_method: { upi: { channel: "qrcode" } }
       },
       {
         headers: {
-          "x-client-id": CF_APP_ID,
-          "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
       }
     );
@@ -203,12 +154,11 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
   } catch (e) {
     const errorData = e.response && e.response.data ? e.response.data : e.message;
-    console.error("QR Error:", JSON.stringify(errorData));
     res.status(500).json({ error: JSON.stringify(errorData) });
   }
 });
 
-// ✅ 4. VERIFY ORDER (WALLET UPDATE FIX)
+// ✅ 3. VERIFY & ADD MONEY TO WALLET
 app.post("/api/wallet/verifyOrder", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
@@ -223,16 +173,17 @@ app.post("/api/wallet/verifyOrder", async (req, res) => {
       },
     });
 
-    const status = cfRes.data.order_status;
-    if (status === "PAID") {
+    if (cfRes.data.order_status === "PAID") {
       const txnRef = db.collection("transactions").doc(orderId);
       const txn = await txnRef.get();
       
       if (txn.exists && txn.data().status !== "PAID") {
         await txnRef.update({ status: "PAID" });
         
+        // Update User Balance & History
         await db.collection("users").doc(uid).update({
           balance: admin.firestore.FieldValue.increment(txn.data().amount),
+          wallet: admin.firestore.FieldValue.increment(txn.data().amount),
           transactions: admin.firestore.FieldValue.arrayUnion({
             type: 'credit',
             amount: txn.data().amount,
@@ -242,7 +193,7 @@ app.post("/api/wallet/verifyOrder", async (req, res) => {
         });
       }
     }
-    res.json({ status });
+    res.json({ status: cfRes.data.order_status });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
