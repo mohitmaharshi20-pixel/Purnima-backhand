@@ -90,7 +90,7 @@ app.post("/api/auth/signup", async (req, res) => {
   }
 });
 
-// ✅ 3. FIXED CREATE QR CODE (SANDBOX STABLE VERSION)
+// ✅ 3. FIXED CREATE QR CODE (STABLE SESSION-PAY VERSION)
 app.post("/api/wallet/createQR", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
@@ -101,7 +101,7 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     const orderId = `ORD_QR_${uid.slice(0, 5)}_${Date.now()}`;
 
-    // STEP A: Order Create
+    // STEP A: Order Create (Session ID लेने के लिए)
     const orderRes = await axios.post(
       "https://sandbox.cashfree.com/pg/orders",
       {
@@ -111,9 +111,9 @@ app.post("/api/wallet/createQR", async (req, res) => {
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
-          customer_name: "Test User"
+          customer_name: "App User"
         },
-        order_expiry_time: new Date(Date.now() + 30 * 60000).toISOString(),
+        order_expiry_time: new Date(Date.now() + 60 * 60000).toISOString(),
       },
       {
         headers: {
@@ -127,24 +127,19 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     const sessionId = orderRes.data.payment_session_id;
 
-    // STEP B: Pay API - (Endpoint fix for Sandbox)
-    // यहाँ हमने '/pay' का इस्तेमाल किया है और headers में Client ID/Secret वापस डाला है
+    // STEP B: Get QR Code (USING SESSIONS-PAY URL)
+    // सबसे ज़रूरी: यहाँ headers में ID और Secret नहीं भेजने हैं!
     const payRes = await axios.post(
-      "https://sandbox.cashfree.com/pg/orders/pay",
+      "https://sandbox.cashfree.com/pg/orders/sessions/pay",
       {
         payment_session_id: sessionId,
-        payment_method: {
-          upi: { channel: "qrcode" }
-        }
+        payment_method: { upi: { channel: "qrcode" } }
       },
       {
         headers: {
-          "x-client-id": CF_APP_ID,
-          "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
-          "Content-Type": "application/json",
-          "x-request-id": `REQ_${Date.now()}`
-        }
+          "Content-Type": "application/json"
+        },
       }
     );
 
@@ -162,20 +157,19 @@ app.post("/api/wallet/createQR", async (req, res) => {
     });
 
   } catch (e) {
-    const errorMsg = e.response && e.response.data ? e.response.data : e.message;
-    console.error("QR Final Error:", JSON.stringify(errorMsg));
-    res.status(500).json({ error: JSON.stringify(errorMsg) });
+    const errorData = e.response && e.response.data ? e.response.data : e.message;
+    res.status(500).json({ error: JSON.stringify(errorData) });
   }
 });
 
-// ✅ 3. VERIFY & ADD MONEY TO WALLET
+// ✅ 4. VERIFY ORDER & ADD MONEY
 app.post("/api/wallet/verifyOrder", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
 
   try {
     const { orderId } = req.body;
-    const cfRes = await axios.get(`${CF_BASE_URL}/orders/${orderId}`, {
+    const cfRes = await axios.get(`https://sandbox.cashfree.com/pg/orders/${orderId}`, {
       headers: {
         "x-client-id": CF_APP_ID,
         "x-client-secret": CF_SECRET,
@@ -190,7 +184,6 @@ app.post("/api/wallet/verifyOrder", async (req, res) => {
       if (txn.exists && txn.data().status !== "PAID") {
         await txnRef.update({ status: "PAID" });
         
-        // Update User Balance & History
         await db.collection("users").doc(uid).update({
           balance: admin.firestore.FieldValue.increment(txn.data().amount),
           wallet: admin.firestore.FieldValue.increment(txn.data().amount),
