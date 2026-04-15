@@ -145,6 +145,87 @@ app.post("/api/wallet/createOrder", async (req, res) => {
   }
 });
 
+// --- NAYA ROUTE: SEAMLESS QR CODE KE LIYE ---
+app.post("/api/wallet/createQR", async (req, res) => {
+  const uid = await verifyToken(req, res);
+  if (!uid) return;
+
+  try {
+    const amount = parseFloat(req.body.amount);
+    if (!amount || amount < 1)
+      return res.status(400).json({ error: "Min ₹1 required" });
+
+    const orderId = `ORD_${uid.slice(0, 6)}_${Date.now()}`;
+
+    // 5 Minute ki Expiry
+    const expiryDate = new Date();
+    expiryDate.setMinutes(expiryDate.getMinutes() + 5);
+
+    // 1. Cashfree me Order Create karein
+    const orderRes = await axios.post(
+      `${CF_BASE_URL}/orders`,
+      {
+        order_id: orderId,
+        order_amount: amount,
+        order_currency: "INR",
+        order_expiry_time: expiryDate.toISOString(),
+        customer_details: {
+          customer_id: uid,
+          customer_phone: "9999999999",
+        },
+      },
+      {
+        headers: {
+          "x-client-id": CF_APP_ID,
+          "x-client-secret": CF_SECRET,
+          "x-api-version": "2023-08-01",
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const sessionId = orderRes.data.payment_session_id;
+
+    // 2. Cashfree se QR Code Image mangein (Seamless API)
+    const qrRes = await axios.post(
+      `${CF_BASE_URL}/orders/pay`,
+      {
+        payment_session_id: sessionId,
+        payment_method: {
+          upi: {
+            channel: "qrcode"
+          }
+        }
+      },
+      {
+        headers: {
+          "x-api-version": "2023-08-01",
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    // Transaction History me Pending save karein
+    await db.collection("transactions").doc(orderId).set({
+      userId: uid,
+      amount,
+      status: "PENDING",
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // Frontend ko QR Image Data, Order ID aur Session ID bhej dein
+    res.json({
+      orderId: orderId,
+      qrData: qrRes.data.data.payload.qrcode, 
+    });
+
+  } catch (e) {
+    const errorDetail = e.response && e.response.data ? JSON.stringify(e.response.data) : e.message;
+    console.error("QR Error:", errorDetail);
+    res.status(500).json({ error: errorDetail });
+  }
+});
+
 // ✅ Verify Order Route (NAYA)
 app.post("/api/wallet/verifyOrder", async (req, res) => {
   const uid = await verifyToken(req, res);
