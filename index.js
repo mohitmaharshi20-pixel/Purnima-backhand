@@ -1,17 +1,21 @@
 // ============================================================
-//  PURNIMA E-SPORTS — QR CODE FINAL REPAIR (STABLE)
+//  PURNIMA E-SPORTS — FULL PRODUCTION BACKEND (REPAIRED)
 // ============================================================
 
 const cors = require("cors");
 const express = require("express");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 const axios = require("axios");
 
 const app = express();
 app.use(cors({ origin: "*" }));
+
+// Cashfree Webhook ke liye raw body zaroori hai
+app.use("/api/webhook/cashfree", express.raw({ type: "application/json" }));
 app.use(express.json());
 
-// 1. Firebase Admin Initialization
+// 1. Firebase Admin Initialization (Vercel Serverless Fix)
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -26,10 +30,10 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// 2. Cashfree Config (Sandbox Mode)
+// 2. Cashfree Config (Sandbox Mode for Testing)
 const CF_APP_ID = process.env.CASHFREE_APP_ID;
 const CF_SECRET = process.env.CASHFREE_SECRET_KEY;
-const CF_BASE_URL = "https://sandbox.cashfree.com/pg"; // Sandbox URL
+const CF_BASE_URL = "https://sandbox.cashfree.com/pg"; 
 
 // --- HELPERS ---
 async function verifyToken(req, res) {
@@ -48,14 +52,53 @@ async function verifyToken(req, res) {
   }
 }
 
+function genReferralCode(uid) {
+  return (
+    uid.slice(0, 6).toUpperCase() +
+    Math.random().toString(36).slice(2, 5).toUpperCase()
+  );
+}
+
 // --- API ROUTES ---
 
+// Test Route: Check if live
 app.get("/api", (req, res) => {
-  res.status(200).json({ success: true, message: "Purnima Backend Live! ✅" });
+  res.status(200).json({
+    success: true,
+    message: "Purnima Backend Full Version Live! ✅",
+  });
 });
 
-// ✅ CREATE QR CODE - ABSOLUTE FIXED VERSION
-app.post("/api/wallet/createQR", async (req, res) => {
+// ✅ 1. SIGNUP ROUTE (JO CHHOOT GAYA THA)
+app.post("/api/auth/signup", async (req, res) => {
+  try {
+    const { uid, username, email } = req.body;
+    if (!uid || !username || !email) {
+      return res.status(400).json({ error: "Details missing" });
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const snap = await userRef.get();
+    if (snap.exists) return res.json({ success: true, message: "User exists" });
+
+    const newUser = {
+      name: String(username).trim(),
+      email: String(email).trim(),
+      balance: 0,
+      referralCode: genReferralCode(uid),
+      transactions: [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await userRef.set(newUser);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ✅ 2. STANDARD CREATE ORDER (BACKUP)
+app.post("/api/wallet/createOrder", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
 
@@ -63,9 +106,8 @@ app.post("/api/wallet/createQR", async (req, res) => {
     const amount = parseFloat(req.body.amount);
     const orderId = `ORD_${uid.slice(0, 5)}_${Date.now()}`;
 
-    // 1. Order Create - (Yahan se Session ID milti hai)
-    const orderRes = await axios.post(
-      "https://sandbox.cashfree.com/pg/orders",
+    const cfRes = await axios.post(
+      `${CF_BASE_URL}/orders`,
       {
         order_id: orderId,
         order_amount: amount,
@@ -73,31 +115,7 @@ app.post("/api/wallet/createQR", async (req, res) => {
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
-          customer_name: "Gamer" 
         },
-        order_expiry_time: new Date(Date.now() + 30 * 60000).toISOString(),
-      },
-      {
-        headers: {
-          "x-client-id": CF_APP_ID,
-          "x-client-secret": CF_SECRET,
-          "x-api-version": "2023-08-01",
-          "Content-Type": "application/json"
-        }
-      }
-    );
-
-    const sessId = orderRes.data.payment_session_id;
-
-    // 2. Pay API - (QR Code fetch karne ke liye)
-    // Humne headers aur body ko bilkul clean kar diya hai
-    const payRes = await axios.post(
-      "https://sandbox.cashfree.com/pg/orders/pay",
-      {
-        payment_session_id: sessId,
-        payment_method: {
-          upi: { channel: "qrcode" }
-        }
       },
       {
         headers: {
@@ -105,34 +123,86 @@ app.post("/api/wallet/createQR", async (req, res) => {
           "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
           "Content-Type": "application/json",
-          "x-request-id": `REQ_${Date.now()}` // Yeh line zaroori hai!
-        }
+        },
       }
     );
 
-    // Save transaction to DB
+    res.json({ sessionId: cfRes.data.payment_session_id, orderId });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ✅ 3. FIXED CREATE QR CODE (USING SESSIONS PAY ENDPOINT)
+app.post("/api/wallet/createQR", async (req, res) => {
+  const uid = await verifyToken(req, res);
+  if (!uid) return;
+
+  try {
+    const amount = parseFloat(req.body.amount);
+    const orderId = `ORD_QR_${uid.slice(0, 5)}_${Date.now()}`;
+
+    // A. Order Create
+    const orderRes = await axios.post(
+      `${CF_BASE_URL}/orders`,
+      {
+        order_id: orderId,
+        order_amount: amount,
+        order_currency: "INR",
+        order_expiry_time: new Date(Date.now() + 25 * 60000).toISOString(),
+        customer_details: {
+          customer_id: uid,
+          customer_phone: "9999999999",
+        },
+      },
+      {
+        headers: {
+          "x-client-id": CF_APP_ID,
+          "x-client-secret": CF_SECRET,
+          "x-api-version": "2023-08-01",
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const sessionId = orderRes.data.payment_session_id;
+
+    // B. Get QR Code (FIXED: Using /sessions/pay to avoid Token error)
+    const payRes = await axios.post(
+      `${CF_BASE_URL}/orders/sessions/pay`,
+      {
+        payment_session_id: sessionId,
+        payment_method: { upi: { channel: "qrcode" } }
+      },
+      {
+        headers: {
+          "x-api-version": "2023-08-01",
+          "Content-Type": "application/json",
+          "x-request-id": `REQ_${Date.now()}`
+        },
+      }
+    );
+
+    // Save to Database
     await db.collection("transactions").doc(orderId).set({
       userId: uid,
-      amount,
+      amount: amount,
       status: "PENDING",
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Frontend ko QR bhejo
     res.json({
       orderId: orderId,
       qrData: payRes.data.data.payload.qrcode, 
     });
 
   } catch (e) {
-    // Agar error aaye to uska pura detail dikhao
     const errorData = e.response && e.response.data ? e.response.data : e.message;
-    console.error("QR Error:", JSON.stringify(errorData));
     res.status(500).json({ error: JSON.stringify(errorData) });
   }
 });
 
-// ✅ VERIFY ORDER ROUTE
+// ✅ 4. VERIFY ORDER (WALLET UPDATE FIX)
 app.post("/api/wallet/verifyOrder", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
@@ -151,10 +221,19 @@ app.post("/api/wallet/verifyOrder", async (req, res) => {
     if (status === "PAID") {
       const txnRef = db.collection("transactions").doc(orderId);
       const txn = await txnRef.get();
+      
       if (txn.exists && txn.data().status !== "PAID") {
         await txnRef.update({ status: "PAID" });
+        
+        // Purnima App uses 'balance' field in 'users' collection
         await db.collection("users").doc(uid).update({
           balance: admin.firestore.FieldValue.increment(txn.data().amount),
+          transactions: admin.firestore.FieldValue.arrayUnion({
+            type: 'credit',
+            amount: txn.data().amount,
+            msg: 'Cash Added (QR)',
+            date: Date.now()
+          })
         });
       }
     }
