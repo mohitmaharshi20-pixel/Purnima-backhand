@@ -54,7 +54,7 @@ app.get("/api", (req, res) => {
   res.status(200).json({ success: true, message: "Purnima Backend Live! ✅" });
 });
 
-// ✅ CREATE QR CODE - FINAL FIXED
+// ✅ CREATE QR CODE - ABSOLUTE FIXED VERSION
 app.post("/api/wallet/createQR", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
@@ -63,7 +63,7 @@ app.post("/api/wallet/createQR", async (req, res) => {
     const amount = parseFloat(req.body.amount);
     const orderId = `ORD_${uid.slice(0, 5)}_${Date.now()}`;
 
-    // 1. Order Create
+    // 1. Order Create - (Yahan se Session ID milti hai)
     const orderRes = await axios.post(
       "https://sandbox.cashfree.com/pg/orders",
       {
@@ -73,6 +73,7 @@ app.post("/api/wallet/createQR", async (req, res) => {
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
+          customer_name: "Gamer" 
         },
         order_expiry_time: new Date(Date.now() + 30 * 60000).toISOString(),
       },
@@ -81,14 +82,15 @@ app.post("/api/wallet/createQR", async (req, res) => {
           "x-client-id": CF_APP_ID,
           "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
-          "Content-Type": "application/json",
-        },
+          "Content-Type": "application/json"
+        }
       }
     );
 
     const sessId = orderRes.data.payment_session_id;
 
-    // 2. Pay API - QR Code fetch (Fixing the token error)
+    // 2. Pay API - (QR Code fetch karne ke liye)
+    // Humne headers aur body ko bilkul clean kar diya hai
     const payRes = await axios.post(
       "https://sandbox.cashfree.com/pg/orders/pay",
       {
@@ -103,11 +105,12 @@ app.post("/api/wallet/createQR", async (req, res) => {
           "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
           "Content-Type": "application/json",
-        },
+          "x-request-id": `REQ_${Date.now()}` // Yeh line zaroori hai!
+        }
       }
     );
 
-    // Save to DB
+    // Save transaction to DB
     await db.collection("transactions").doc(orderId).set({
       userId: uid,
       amount,
@@ -115,14 +118,17 @@ app.post("/api/wallet/createQR", async (req, res) => {
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    // Frontend ko QR bhejo
     res.json({
       orderId: orderId,
       qrData: payRes.data.data.payload.qrcode, 
     });
 
   } catch (e) {
-    const err = e.response && e.response.data ? e.response.data : e.message;
-    res.status(500).json({ error: JSON.stringify(err) });
+    // Agar error aaye to uska pura detail dikhao
+    const errorData = e.response && e.response.data ? e.response.data : e.message;
+    console.error("QR Error:", JSON.stringify(errorData));
+    res.status(500).json({ error: JSON.stringify(errorData) });
   }
 });
 
