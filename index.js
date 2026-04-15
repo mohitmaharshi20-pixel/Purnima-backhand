@@ -54,29 +54,27 @@ app.get("/api", (req, res) => {
   res.status(200).json({ success: true, message: "Purnima Backend Live! ✅" });
 });
 
-// ✅ CREATE QR CODE ROUTE (STABLE VERSION)
+// ✅ CREATE QR CODE - FINAL FIXED
 app.post("/api/wallet/createQR", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
 
   try {
     const amount = parseFloat(req.body.amount);
-    if (!amount || amount < 1) return res.status(400).json({ error: "Min ₹1 required" });
-
     const orderId = `ORD_${uid.slice(0, 5)}_${Date.now()}`;
 
-    // STEP 1: Create Order
+    // 1. Order Create
     const orderRes = await axios.post(
-      `${CF_BASE_URL}/orders`,
+      "https://sandbox.cashfree.com/pg/orders",
       {
         order_id: orderId,
         order_amount: amount,
         order_currency: "INR",
-        order_expiry_time: new Date(Date.now() + 30 * 60000).toISOString(),
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
         },
+        order_expiry_time: new Date(Date.now() + 30 * 60000).toISOString(),
       },
       {
         headers: {
@@ -88,21 +86,20 @@ app.post("/api/wallet/createQR", async (req, res) => {
       }
     );
 
-    const sessionId = orderRes.data.payment_session_id;
+    const sessId = orderRes.data.payment_session_id;
 
-    // STEP 2: Pay API (Direct Endpoint for Seamless QR)
-    // हमने URL को बदल कर '/orders/pay' किया है जो 'not valid' एरर को हटा देगा
+    // 2. Pay API - QR Code fetch (Fixing the token error)
     const payRes = await axios.post(
-      `${CF_BASE_URL}/orders/pay`, 
+      "https://sandbox.cashfree.com/pg/orders/pay",
       {
-        payment_session_id: sessionId,
+        payment_session_id: sessId,
         payment_method: {
           upi: { channel: "qrcode" }
         }
       },
       {
         headers: {
-          "x-client-id": CF_APP_ID, // यहाँ Client ID/Secret डालना जरूरी है
+          "x-client-id": CF_APP_ID,
           "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
           "Content-Type": "application/json",
@@ -110,7 +107,7 @@ app.post("/api/wallet/createQR", async (req, res) => {
       }
     );
 
-    // STEP 3: Save to Database
+    // Save to DB
     await db.collection("transactions").doc(orderId).set({
       userId: uid,
       amount,
@@ -120,13 +117,12 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     res.json({
       orderId: orderId,
-      qrData: payRes.data.data.payload.qrcode, // Base64 Image
+      qrData: payRes.data.data.payload.qrcode, 
     });
 
   } catch (e) {
-    const errorData = e.response && e.response.data ? e.response.data : e.message;
-    console.error("Full Error Debug:", JSON.stringify(errorData));
-    res.status(500).json({ error: JSON.stringify(errorData) });
+    const err = e.response && e.response.data ? e.response.data : e.message;
+    res.status(500).json({ error: JSON.stringify(err) });
   }
 });
 
