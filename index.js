@@ -157,9 +157,9 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     const orderId = `ORD_${uid.slice(0, 6)}_${Date.now()}`;
 
-    // 5 Minute ki Expiry
+    // 16 Minute ki Expiry (Cashfree API error se bachne ke liye)
     const expiryDate = new Date();
-    expiryDate.setMinutes(expiryDate.getMinutes() + 5);
+    expiryDate.setMinutes(expiryDate.getMinutes() + 16);
 
     // 1. Cashfree me Order Create karein
     const orderRes = await axios.post(
