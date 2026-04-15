@@ -127,10 +127,10 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     const sessionId = orderRes.data.payment_session_id;
 
-    // STEP B: Get QR Code (USING SESSIONS-PAY URL)
+// STEP B: Get QR Code (USING SESSIONS-PAY URL)
     // सबसे ज़रूरी: यहाँ headers में ID और Secret नहीं भेजने हैं!
     const payRes = await axios.post(
-      "https://sandbox.cashfree.com/pg/orders/sessions/pay",
+      "https://sandbox.cashfree.com/pg/orders/sessions",
       {
         payment_session_id: sessionId,
         payment_method: { upi: { channel: "qrcode" } }
