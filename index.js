@@ -33,7 +33,8 @@ const db = admin.firestore();
 // 2. Cashfree Config
 const CF_APP_ID = process.env.CASHFREE_APP_ID;
 const CF_SECRET = process.env.CASHFREE_SECRET_KEY;
-const CF_BASE_URL = "https://api.cashfree.com/pg";
+// नया कोड (टेस्टिंग के लिए)
+const CF_BASE_URL = "https://sandbox.cashfree.com/pg";
 
 // --- HELPERS ---
 async function verifyToken(req, res) {
