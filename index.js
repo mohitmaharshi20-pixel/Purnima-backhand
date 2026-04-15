@@ -89,7 +89,8 @@ app.post("/api/auth/signup", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-// ✅ 3. FIXED CREATE QR CODE (SESSIONS PAY VERSION)
+
+// ✅ 3. FIXED CREATE QR CODE (SANDBOX STABLE VERSION)
 app.post("/api/wallet/createQR", async (req, res) => {
   const uid = await verifyToken(req, res);
   if (!uid) return;
@@ -100,18 +101,41 @@ app.post("/api/wallet/createQR", async (req, res) => {
 
     const orderId = `ORD_QR_${uid.slice(0, 5)}_${Date.now()}`;
 
-    // STEP A: Order Create (Session ID लेने के लिए)
+    // STEP A: Order Create
     const orderRes = await axios.post(
-      `${CF_BASE_URL}/orders`,
+      "https://sandbox.cashfree.com/pg/orders",
       {
         order_id: orderId,
         order_amount: amount,
         order_currency: "INR",
-        order_expiry_time: new Date(Date.now() + 40 * 60000).toISOString(),
         customer_details: {
           customer_id: uid,
           customer_phone: "9999999999",
+          customer_name: "Test User"
         },
+        order_expiry_time: new Date(Date.now() + 30 * 60000).toISOString(),
+      },
+      {
+        headers: {
+          "x-client-id": CF_APP_ID,
+          "x-client-secret": CF_SECRET,
+          "x-api-version": "2023-08-01",
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const sessionId = orderRes.data.payment_session_id;
+
+    // STEP B: Pay API - (Endpoint fix for Sandbox)
+    // यहाँ हमने '/pay' का इस्तेमाल किया है और headers में Client ID/Secret वापस डाला है
+    const payRes = await axios.post(
+      "https://sandbox.cashfree.com/pg/orders/pay",
+      {
+        payment_session_id: sessionId,
+        payment_method: {
+          upi: { channel: "qrcode" }
+        }
       },
       {
         headers: {
@@ -119,27 +143,8 @@ app.post("/api/wallet/createQR", async (req, res) => {
           "x-client-secret": CF_SECRET,
           "x-api-version": "2023-08-01",
           "Content-Type": "application/json",
-        },
-      }
-    );
-
-    const sessionId = orderRes.data.payment_session_id;
-
-    // STEP B: QR Code fetch (FIXED: Using Session Pay + Request ID)
-    const payRes = await axios.post(
-      `${CF_BASE_URL}/orders/sessions/pay`, // <--- यहाँ /sessions/ जोड़ दिया है
-      {
-        payment_session_id: sessionId,
-        payment_method: { 
-          upi: { channel: "qrcode" } 
+          "x-request-id": `REQ_${Date.now()}`
         }
-      },
-      {
-        headers: {
-          "x-api-version": "2023-08-01",
-          "Content-Type": "application/json",
-          "x-request-id": `REQ_${Date.now()}` // <--- यह यूनिक ID जोड़ना जरूरी था
-        },
       }
     );
 
@@ -157,11 +162,12 @@ app.post("/api/wallet/createQR", async (req, res) => {
     });
 
   } catch (e) {
-    // अगर एरर आए तो साफ़-साफ़ दिखे कि क्या दिक्कत है
-    const errorData = e.response && e.response.data ? e.response.data : e.message;
-    res.status(500).json({ error: JSON.stringify(errorData) });
+    const errorMsg = e.response && e.response.data ? e.response.data : e.message;
+    console.error("QR Final Error:", JSON.stringify(errorMsg));
+    res.status(500).json({ error: JSON.stringify(errorMsg) });
   }
 });
+
 // ✅ 3. VERIFY & ADD MONEY TO WALLET
 app.post("/api/wallet/verifyOrder", async (req, res) => {
   const uid = await verifyToken(req, res);
