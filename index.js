@@ -128,8 +128,8 @@ app.post("/api/wallet/instamojo/check", async (req, res) => {
     // Instamojo से पूछें पेमेंट हुई या नहीं
     const response = await axios.get(`${INSTA_BASE_URL}${paymentId}/`, {
       headers: {
-        'X-Api-Key': INSTA_API_KEY,
-        'X-Auth-Token': INSTA_AUTH_TOKEN
+        'X-Api-Key':   057d2350e917a1c3964a77aa1f7c6a06 ,
+        'X-Auth-Token': feb9373feeeb7f69188ea62f44d2a496
       }
     });
 
