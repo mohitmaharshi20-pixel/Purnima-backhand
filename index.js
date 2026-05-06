@@ -19,10 +19,15 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-// API KEYS
+// API KEYS (Yahan Quotes "" lagana zaroori tha jo pehle miss the)
 const INSTA_API_KEY = "057d2350e917a1c3964a77aa1f7c6a06";
 const INSTA_AUTH_TOKEN = "feb9373feeeb7f69188ea62f44d2a496";
-const INSTA_BASE_URL = "https://www.instamojo.com/api/1.1/payment-requests/"; // Corrected URL
+const INSTA_BASE_URL = "https://www.instamojo.com/api/1.1/payment-requests/";
+
+// 0. Base Route (Vercel par 500 Error hatane ke liye)
+app.get("/", (req, res) => {
+  res.send("Purnima E-Sports Backend is Running Successfully!");
+});
 
 // 1. Create Payment
 app.post("/api/wallet/instamojo/create", async (req, res) => {
@@ -37,8 +42,8 @@ app.post("/api/wallet/instamojo/create", async (req, res) => {
 
     const response = await axios.post(INSTA_BASE_URL, params, {
       headers: {
-        'X-Api-Key':   057d2350e917a1c3964a77aa1f7c6a06  ,
-        'X-Auth-Token': feb9373feeeb7f69188ea62f44d2a496 ,
+        'X-Api-Key': INSTA_API_KEY,  
+        'X-Auth-Token': INSTA_AUTH_TOKEN, 
         'Content-Type': 'application/x-www-form-urlencoded'
       }
     });
@@ -48,23 +53,54 @@ app.post("/api/wallet/instamojo/create", async (req, res) => {
   }
 });
 
-// 2. Check & Update Wallet
+// 2. Check & Update Wallet (Secured)
 app.post("/api/wallet/instamojo/check", async (req, res) => {
   try {
-    const { paymentRequestId, uid, amount } = req.body;
+    const { paymentRequestId } = req.body;
+
+    // 1. Frontend se Token lekar User ID (uid) nikalna
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized user' });
+    }
+    const idToken = authHeader.split('Bearer ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+
+    // 2. Instamojo se asli payment status check karna
     const response = await axios.get(`${INSTA_BASE_URL}${paymentRequestId}/`, {
-      headers: { 'X-Api-Key':  057d2350e917a1c3964a77aa1f7c6a06    , 'X-Auth-Token': feb9373feeeb7f69188ea62f44d2a496  }
+      headers: { 
+        'X-Api-Key': INSTA_API_KEY, 
+        'X-Auth-Token': INSTA_AUTH_TOKEN 
+      }
     });
 
     const status = response.data.payment_request.status;
-    if (status === 'Completed') {
-      await db.collection("users").doc(uid).update({
-        balance: admin.firestore.FieldValue.increment(parseFloat(amount)),
-        transactions: admin.firestore.FieldValue.arrayUnion({
-          type: 'credit', amount: parseFloat(amount), msg: 'Wallet Recharge', date: Date.now()
-        })
-      });
-      res.json({ success: true, status: 'Completed' });
+    const amount = response.data.payment_request.amount; // Asli amount API se
+
+    if (status === 'Completed' || status === 'Credit') {
+      
+      // 3. Security Check: Kahi ye payment pehle add to nahi ho chuki?
+      const docRef = db.collection("instamojo_txns").doc(paymentRequestId);
+      const doc = await docRef.get();
+      
+      if (!doc.exists) {
+          // Pehli baar success hua hai, wallet mein paise add karo
+          await db.collection("users").doc(uid).update({
+            balance: admin.firestore.FieldValue.increment(parseFloat(amount)),
+            transactions: admin.firestore.FieldValue.arrayUnion({
+              type: 'credit', 
+              amount: parseFloat(amount), 
+              msg: 'Wallet Recharge (UPI)', 
+              date: Date.now()
+            })
+          });
+          
+          // Transaction ko save kar do taaki dobara paise add na hon
+          await docRef.set({ processed: true, uid: uid, amount: amount, date: Date.now() });
+      }
+
+      res.json({ success: true, status: 'Credit' });
     } else {
       res.json({ success: false, status: status });
     }
