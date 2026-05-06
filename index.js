@@ -50,8 +50,8 @@ function genReferralCode(uid) {
 // ============================================================
 // 🔴 INSTAMOJO API KEYS (यहाँ अपनी Keys डालें) 🔴
 // ============================================================
-const INSTA_API_KEY = "YOUR_INSTAMOJO_API_KEY_HERE";         // अपनी API Key डालें
-const INSTA_AUTH_TOKEN = "YOUR_INSTAMOJO_AUTH_TOKEN_HERE";   // अपना Auth Token डालें
+const INSTA_API_KEY = "057d2350e917a1c3964a77aa1f7c6a06";         // अपनी API Key डालें
+const INSTA_AUTH_TOKEN = "feb9373feeeb7f69188ea62f44d2a496";   // अपना Auth Token डालें
 const INSTA_BASE_URL = "https://api.instamojo.com/v2/payment_requests/"; // Live URL
 
 // --- API ROUTES ---
