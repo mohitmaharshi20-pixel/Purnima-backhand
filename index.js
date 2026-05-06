@@ -22,8 +22,12 @@ const db = admin.firestore();
 // API KEYS (Yahan Quotes "" lagana zaroori tha jo pehle miss the)
 const INSTA_API_KEY = "057d2350e917a1c3964a77aa1f7c6a06";
 const INSTA_AUTH_TOKEN = "feb9373feeeb7f69188ea62f44d2a496";
-const INSTA_BASE_URL = "https://www.instamojo.com/api/1.1/payment-requests/";
 
+// 👇 AGAR AAP TEST ACCOUNT (Bina real paise ke) USE KAR RAHE HAIN TO YE URL USE KAREIN 👇
+const INSTA_BASE_URL = "https://test.instamojo.com/api/1.1/payment-requests/";
+
+// 👇 AGAR AAP LIVE ACCOUNT (Real paise ke liye) USE KAR RAHE HAIN TO ISKO UNCOMMENT KAREIN AUR UPAR WALE KO HATA DEIN 👇
+// const INSTA_BASE_URL = "https://www.instamojo.com/api/1.1/payment-requests/";
 // 0. Base Route (Vercel par 500 Error hatane ke liye)
 app.get("/", (req, res) => {
   res.send("Purnima E-Sports Backend is Running Successfully!");
